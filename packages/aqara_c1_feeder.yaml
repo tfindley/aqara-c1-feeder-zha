@@ -1,0 +1,139 @@
+# Aqara C1 pet feeder: on-device feeding schedule control panel
+# =============================================================
+# Requires the custom ZHA quirk in custom_zha_quirks/ (it provides the
+# "Feeding schedule" sensor and the ability to write the schedule).
+#
+# SETUP: the entity IDs below assume your feeder's ZHA entities start with
+# "pet_feeder_" (e.g. name the device "Pet feeder" without an area). Otherwise
+# search & replace "pet_feeder_" with your own prefix. Used here:
+#   select.pet_feeder_mode               (Feeding mode select)
+#   sensor.pet_feeder_feeding_schedule   (Feeding schedule sensor from the quirk)
+#   number.pet_feeder_portion_weight     (Portion weight number)
+#
+# The panel offers 6 feeding slots. The feeder itself accepts up to 10.
+
+input_boolean:
+  cat_feeder_slot_1: { name: "Feeding 1", icon: mdi:food-drumstick }
+  cat_feeder_slot_2: { name: "Feeding 2", icon: mdi:food-drumstick }
+  cat_feeder_slot_3: { name: "Feeding 3", icon: mdi:food-drumstick }
+  cat_feeder_slot_4: { name: "Feeding 4", icon: mdi:food-drumstick }
+  cat_feeder_slot_5: { name: "Feeding 5", icon: mdi:food-drumstick }
+  cat_feeder_slot_6: { name: "Feeding 6", icon: mdi:food-drumstick }
+
+input_datetime:
+  cat_feeder_slot_1_time: { name: "Feeding 1 time", has_date: false, has_time: true }
+  cat_feeder_slot_2_time: { name: "Feeding 2 time", has_date: false, has_time: true }
+  cat_feeder_slot_3_time: { name: "Feeding 3 time", has_date: false, has_time: true }
+  cat_feeder_slot_4_time: { name: "Feeding 4 time", has_date: false, has_time: true }
+  cat_feeder_slot_5_time: { name: "Feeding 5 time", has_date: false, has_time: true }
+  cat_feeder_slot_6_time: { name: "Feeding 6 time", has_date: false, has_time: true }
+
+input_number:
+  cat_feeder_slot_1_portions: { name: "Feeding 1 portions", min: 1, max: 10, step: 1, mode: box, icon: mdi:numeric }
+  cat_feeder_slot_2_portions: { name: "Feeding 2 portions", min: 1, max: 10, step: 1, mode: box, icon: mdi:numeric }
+  cat_feeder_slot_3_portions: { name: "Feeding 3 portions", min: 1, max: 10, step: 1, mode: box, icon: mdi:numeric }
+  cat_feeder_slot_4_portions: { name: "Feeding 4 portions", min: 1, max: 10, step: 1, mode: box, icon: mdi:numeric }
+  cat_feeder_slot_5_portions: { name: "Feeding 5 portions", min: 1, max: 10, step: 1, mode: box, icon: mdi:numeric }
+  cat_feeder_slot_6_portions: { name: "Feeding 6 portions", min: 1, max: 10, step: 1, mode: box, icon: mdi:numeric }
+
+input_select:
+  cat_feeder_days:
+    name: "Feeding days"
+    icon: mdi:calendar-week
+    options:
+      - everyday
+      - workdays
+      - weekend
+
+template:
+  - sensor:
+      - name: "Cat feeder planned schedule"
+        unique_id: cat_feeder_planned_schedule
+        icon: mdi:calendar-clock
+        # Same format the quirk uses: [days@]HH:MMx<portions>,...
+        state: >
+          {% set days = states('input_select.cat_feeder_days') %}
+          {% set prefix = '' if days in ['everyday', 'unknown', 'unavailable'] else days ~ '@' %}
+          {% set ns = namespace(items=[]) %}
+          {% for i in range(1, 7) %}
+            {% if is_state('input_boolean.cat_feeder_slot_' ~ i, 'on') %}
+              {% set t = states('input_datetime.cat_feeder_slot_' ~ i ~ '_time')[:5] %}
+              {% set p = states('input_number.cat_feeder_slot_' ~ i ~ '_portions') | int(0) %}
+              {% if t is match('^\d\d:\d\d$') and p > 0 %}
+                {% set ns.items = ns.items + [t ~ 'x' ~ p] %}
+              {% endif %}
+            {% endif %}
+          {% endfor %}
+          {% set items = ns.items | sort %}
+          {{ (items | map('regex_replace', '^', prefix) | join(',')) if items else 'none' }}
+
+      - name: "Cat feeder planned portions per day"
+        unique_id: cat_feeder_planned_portions_per_day
+        icon: mdi:counter
+        unit_of_measurement: portions
+        state: >
+          {% set ns = namespace(total=0) %}
+          {% for i in range(1, 7) %}
+            {% if is_state('input_boolean.cat_feeder_slot_' ~ i, 'on') %}
+              {% set ns.total = ns.total + (states('input_number.cat_feeder_slot_' ~ i ~ '_portions') | int(0)) %}
+            {% endif %}
+          {% endfor %}
+          {{ ns.total }}
+
+      - name: "Cat feeder planned food per day"
+        unique_id: cat_feeder_planned_food_per_day
+        icon: mdi:scale
+        unit_of_measurement: g
+        state: >
+          {{ (states('sensor.cat_feeder_planned_portions_per_day') | int(0))
+             * (states('number.pet_feeder_portion_weight') | int(0)) }}
+
+  - binary_sensor:
+      - name: "Cat feeder schedule sent"
+        unique_id: cat_feeder_schedule_sent
+        icon: mdi:sync
+        # on = what is on the feeder matches what is planned here
+        state: >
+          {{ states('sensor.cat_feeder_planned_schedule')
+             == states('sensor.pet_feeder_feeding_schedule') }}
+
+script:
+  cat_feeder_send_schedule:
+    alias: "Send feeding schedule to cat feeder"
+    description: >-
+      Stores the planned schedule on the Aqara C1 feeder itself (so it keeps
+      working without Home Assistant) and switches the feeder to schedule mode.
+    icon: mdi:upload
+    mode: single
+    variables:
+      feeder_mode_entity: select.pet_feeder_mode
+      schedule: "{{ states('sensor.cat_feeder_planned_schedule') }}"
+      ieee: >-
+        {{ device_attr(device_id(feeder_mode_entity), 'identifiers')
+           | selectattr(0, 'eq', 'zha') | map(attribute=1) | first }}
+    sequence:
+      - if:
+          - condition: template
+            value_template: "{{ schedule in ['', 'none', 'unknown', 'unavailable'] }}"
+        then:
+          - stop: "No feedings are enabled, nothing to send."
+            error: true
+      - action: zha.set_zigbee_cluster_attribute
+        data:
+          ieee: "{{ ieee }}"
+          endpoint_id: 1
+          cluster_id: 64704 # 0xFCC0 Aqara manufacturer cluster
+          cluster_type: in
+          attribute: 5011 # 0x1393 feeding_schedule (custom quirk)
+          value: "{{ schedule }}"
+          manufacturer: 4447 # 0x115F Lumi/Aqara
+      - action: select.select_option
+        target:
+          entity_id: "{{ feeder_mode_entity }}"
+        data:
+          option: Schedule
+      - action: logbook.log
+        data:
+          name: Cat feeder
+          message: "schedule sent: {{ schedule }}"
+          entity_id: "{{ feeder_mode_entity }}"

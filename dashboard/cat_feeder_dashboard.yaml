@@ -1,0 +1,220 @@
+# Cat Feeder dashboard view (Lovelace, built-in cards only).
+# Add as a new dashboard: Settings > Dashboards > Add dashboard > New dashboard from scratch,
+# open it, ⋮ > Edit dashboard > ⋮ > Raw configuration editor, and paste this in.
+# Entity IDs assume your feeder's entities start with 'pet_feeder_' (see README).
+views:
+- title: Cat Feeder
+  path: feeder
+  icon: mdi:cat
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Feeding times
+      icon: mdi:calendar-clock
+    - type: entities
+      show_header_toggle: false
+      entities:
+      - entity: input_select.cat_feeder_days
+        name: Days
+      - type: divider
+      - entity: input_boolean.cat_feeder_slot_1
+        name: Feeding 1
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_1
+          state: 'on'
+        row:
+          entity: input_datetime.cat_feeder_slot_1_time
+          name: Time
+          icon: mdi:clock-outline
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_1
+          state: 'on'
+        row:
+          entity: input_number.cat_feeder_slot_1_portions
+          name: Portions
+          icon: mdi:numeric
+      - type: divider
+      - entity: input_boolean.cat_feeder_slot_2
+        name: Feeding 2
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_2
+          state: 'on'
+        row:
+          entity: input_datetime.cat_feeder_slot_2_time
+          name: Time
+          icon: mdi:clock-outline
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_2
+          state: 'on'
+        row:
+          entity: input_number.cat_feeder_slot_2_portions
+          name: Portions
+          icon: mdi:numeric
+      - type: divider
+      - entity: input_boolean.cat_feeder_slot_3
+        name: Feeding 3
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_3
+          state: 'on'
+        row:
+          entity: input_datetime.cat_feeder_slot_3_time
+          name: Time
+          icon: mdi:clock-outline
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_3
+          state: 'on'
+        row:
+          entity: input_number.cat_feeder_slot_3_portions
+          name: Portions
+          icon: mdi:numeric
+      - type: divider
+      - entity: input_boolean.cat_feeder_slot_4
+        name: Feeding 4
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_4
+          state: 'on'
+        row:
+          entity: input_datetime.cat_feeder_slot_4_time
+          name: Time
+          icon: mdi:clock-outline
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_4
+          state: 'on'
+        row:
+          entity: input_number.cat_feeder_slot_4_portions
+          name: Portions
+          icon: mdi:numeric
+      - type: divider
+      - entity: input_boolean.cat_feeder_slot_5
+        name: Feeding 5
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_5
+          state: 'on'
+        row:
+          entity: input_datetime.cat_feeder_slot_5_time
+          name: Time
+          icon: mdi:clock-outline
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_5
+          state: 'on'
+        row:
+          entity: input_number.cat_feeder_slot_5_portions
+          name: Portions
+          icon: mdi:numeric
+      - type: divider
+      - entity: input_boolean.cat_feeder_slot_6
+        name: Feeding 6
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_6
+          state: 'on'
+        row:
+          entity: input_datetime.cat_feeder_slot_6_time
+          name: Time
+          icon: mdi:clock-outline
+      - type: conditional
+        conditions:
+        - entity: input_boolean.cat_feeder_slot_6
+          state: 'on'
+        row:
+          entity: input_number.cat_feeder_slot_6_portions
+          name: Portions
+          icon: mdi:numeric
+      grid_options:
+        columns: full
+  - type: grid
+    cards:
+    - type: heading
+      heading: Send to feeder
+      icon: mdi:upload
+    - type: tile
+      entity: binary_sensor.cat_feeder_schedule_sent
+      name: Feeder has this schedule
+      grid_options:
+        columns: full
+    - type: entities
+      show_header_toggle: false
+      entities:
+      - entity: sensor.cat_feeder_planned_schedule
+        name: Planned
+      - entity: sensor.pet_feeder_feeding_schedule
+        name: On the feeder
+      - entity: sensor.cat_feeder_planned_portions_per_day
+        name: Portions per day
+      - entity: sensor.cat_feeder_planned_food_per_day
+        name: Food per day
+      - type: divider
+      - type: button
+        entity: script.cat_feeder_send_schedule
+        name: Send schedule to feeder
+        icon: mdi:upload
+        action_name: SEND
+        tap_action:
+          action: perform-action
+          perform_action: script.cat_feeder_send_schedule
+          confirmation:
+            text: Replace the schedule stored on the feeder?
+      grid_options:
+        columns: full
+    - type: markdown
+      content: The schedule is stored **on the feeder itself**, so it keeps feeding on time even when
+        Home Assistant or the power is down (on backup batteries). Change times or portions on the left,
+        then press **Send**.
+      grid_options:
+        columns: full
+  - type: grid
+    cards:
+    - type: heading
+      heading: Feeder
+      icon: mdi:cat
+    - type: tile
+      entity: button.pet_feeder_feed
+      name: Feed now
+      tap_action:
+        action: perform-action
+        perform_action: button.press
+        target:
+          entity_id: button.pet_feeder_feed
+        confirmation:
+          text: Dispense one serving now?
+    - type: tile
+      entity: binary_sensor.pet_feeder_problem
+      name: Problem
+    - type: tile
+      entity: sensor.pet_feeder_portions_dispensed_today
+      name: Portions today
+    - type: tile
+      entity: sensor.pet_feeder_weight_dispensed_today
+      name: Food today
+    - type: entities
+      show_header_toggle: false
+      entities:
+      - entity: select.pet_feeder_mode
+        name: Feeding mode
+      - entity: sensor.pet_feeder_last_feeding_source
+        name: Last feeding by
+      - entity: sensor.pet_feeder_last_feeding_size
+        name: Last feeding size
+      - entity: number.pet_feeder_serving_to_dispense
+        name: '''Feed now'' serving size'
+      - entity: number.pet_feeder_portion_weight
+        name: Grams per portion
+      - entity: switch.pet_feeder_child_lock
+        name: Child lock
+      - entity: switch.pet_feeder_led_indicator
+        name: LED
+      grid_options:
+        columns: full
