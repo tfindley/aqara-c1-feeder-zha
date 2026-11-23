@@ -7,15 +7,19 @@ Run against the same library versions Home Assistant ships, e.g.:
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import UTC, datetime
 import importlib.util
 import pathlib
 import sys
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 import zhaquirks
 import zigpy.device
 import zigpy.types as t
+from zigpy.time import TimeSnapshot
 from zigpy.zcl import foundation
 from zha.quirks import DEVICE_REGISTRY, ModelInfo
 
@@ -108,6 +112,7 @@ def test_device_resolves_to_schedule_cluster() -> None:
     assert isinstance(cluster, quirk.ScheduleOppleCluster)
     assert 0x0006 not in dev.endpoints[1].in_clusters  # OnOff removed like stock quirk
     assert 0x000A in dev.endpoints[1].in_clusters  # Time added like stock quirk
+    assert isinstance(dev.endpoints[1].in_clusters[0x000A], quirk.LocalTimeCluster)
 
 
 # -------------------------------------------------------------- cluster ----
@@ -222,3 +227,50 @@ def test_schedule_sensor_metadata() -> None:
     text = repr(entry)
     assert "feeding_schedule" in text
     assert "0xfcc0-feeding_schedule" in text.lower() or "64704-feeding_schedule" in text
+
+
+# ---------------------------------------------------------------- clock ----
+
+PARIS = ZoneInfo("Europe/Paris")
+
+
+@pytest.fixture
+def time_cluster():
+    dev = DEVICE_REGISTRY.resolve(_make_feeder())
+    return dev.endpoints[1].in_clusters[0x000A]
+
+
+@pytest.mark.parametrize(
+    ("utc_now", "offset_hours"),
+    [
+        (datetime(2026, 11, 23, 22, 0, tzinfo=UTC), 1),  # winter: CET, UTC+1
+        (datetime(2026, 7, 1, 21, 0, tzinfo=UTC), 2),  # summer: CEST, UTC+2
+    ],
+)
+def test_time_attribute_is_local_time(time_cluster, utc_now, offset_hours) -> None:
+    snapshot = TimeSnapshot.compute(PARIS, utc_now)
+    answered = time_cluster.handle_read_attribute_time(snapshot)
+    assert int(answered) == int(snapshot.time) + offset_hours * 3600
+    assert int(answered) == int(snapshot.local_time)
+    # 23:00 local must read back as 23:00 on the feeder's clock.
+    assert t.UTCTime(answered).to_datetime().hour == utc_now.astimezone(PARIS).hour
+
+
+def test_invalid_clock_is_passed_through(time_cluster) -> None:
+    snapshot = TimeSnapshot.compute(PARIS, datetime(2026, 11, 23, 22, 0, tzinfo=UTC))
+    invalid = replace(snapshot, time=t.UTCTime(t.UTCTime.INVALID))
+    assert time_cluster.handle_read_attribute_time(invalid) == t.UTCTime.INVALID
+
+
+def test_read_request_answers_local_time(time_cluster) -> None:
+    # Full path the feeder triggers: a Read Attributes request for time (0x0000).
+    time_cluster.endpoint.device.application.local_timezone = PARIS
+    before = datetime.now(UTC)
+    records = time_cluster._handle_read_attributes([0x0000, 0x0007])
+    by_id = {r.attrid: r for r in records}
+    assert all(r.status == foundation.Status.SUCCESS for r in records)
+    answered = int(by_id[0x0000].value.value)
+    assert answered == int(by_id[0x0007].value.value)  # same as local_time
+    offset = int(before.astimezone(PARIS).utcoffset().total_seconds())
+    utc_now = int(t.UTCTime.from_datetime(before))
+    assert abs(answered - (utc_now + offset)) <= 2

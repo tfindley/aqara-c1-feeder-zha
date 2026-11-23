@@ -118,6 +118,20 @@ during development (not documented elsewhere as far as we know):
 
 The quirk handles both and only shows what the feeder reported.
 
+### Clock
+
+The feeder sets its clock by reading the standard Time cluster (`0x000A`)
+from the coordinator. It treats the `time` attribute as **local** time.
+The Zigbee spec, zigpy and ZHA put UTC there, so with the stock behaviour every
+scheduled feed runs late by your UTC offset. In Central Europe that's 1 h in
+winter and 2 h in summer: a 19:00 slot fed at 20:00. This quirk answers `time`
+with local wall-clock time, summer time included, taken from Home Assistant's
+time zone. That's the same as Zigbee2MQTT's `customTimeResponse("2000_LOCAL")`.
+
+After installing or updating the quirk, the feeder only picks up the right
+time the next time it asks for it. Power-cycling the feeder makes it ask
+straight away.
+
 ## Tests
 
 ```sh

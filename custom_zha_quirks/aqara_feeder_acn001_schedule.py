@@ -36,6 +36,10 @@ converter (Zigbee2MQTT): each entry is the hex string of
 string is NUL-terminated, then sent as Aqara sub-attribute 0x080008C8 inside
 manufacturer attribute 0xFFF1 of cluster 0xFCC0.
 
+The quirk also answers the feeder's time requests with local time rather
+than UTC. Otherwise the feeder's clock, and so every scheduled feed, is off
+by the UTC offset.
+
 SPDX-License-Identifier: Apache-2.0
 Derived from zigpy/zha-device-handlers (Apache-2.0).
 """
@@ -346,15 +350,42 @@ def _write_succeeded(result: Any) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Quirk definition: identical to the stock quirk plus the schedule sensor, so
-# existing entity IDs are kept.
+# Clock. The feeder asks the coordinator for the time (ZCL Time cluster) and
+# runs its schedule on the `time` attribute, which it treats as *local* time.
+# The ZCL spec, and zigpy, put UTC there, so every scheduled feed came late by
+# the UTC offset (1 h in winter, 2 h in summer in Central Europe). Answer with
+# local wall-clock time instead, like Zigbee2MQTT's customTimeResponse
+# ("2000_LOCAL"). zigpy already works out local time, summer time included,
+# from Home Assistant's time zone; this only changes which value goes in `time`.
+# ---------------------------------------------------------------------------
+
+
+class LocalTimeCluster(Time):
+    """Time cluster that answers the `time` attribute with local time."""
+
+    def handle_read_attribute_time(self, snapshot: Any) -> types.UTCTime:
+        if snapshot.time == types.UTCTime.INVALID:
+            return snapshot.time
+        local = types.UTCTime(int(snapshot.local_time))
+        LOGGER.debug(
+            "%s read the time: answering local %d instead of UTC %d",
+            self.endpoint.device.ieee,
+            local,
+            snapshot.time,
+        )
+        return local
+
+
+# ---------------------------------------------------------------------------
+# Quirk definition: identical to the stock quirk plus the schedule sensor and
+# the local-time clock, so existing entity IDs are kept.
 # ---------------------------------------------------------------------------
 
 (
     QuirkBuilder(None, "aqara.feeder.acn001")
     .friendly_name(manufacturer="Aqara", model="aqara.feeder.acn001")
     .removes(OnOff.cluster_id)
-    .adds(Time)
+    .adds(LocalTimeCluster)
     .replaces(ScheduleOppleCluster)
     .enum(
         attribute_name=OppleCluster.AttributeDefs.last_feeding_source.name,
